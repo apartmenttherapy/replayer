@@ -28,13 +28,7 @@ var requestMethodsToStub = [
   'destroy',
   'flush',
   'flushHeaders',
-  'getHeader',
-  'getHeaderNames',
-  'getHeaders',
-  'hasHeader',
   'onSocket',
-  'removeHeader',
-  'setHeader',
   'setNoDelay',
   'setSocketKeepAlive',
   'setTimeout'
@@ -131,6 +125,46 @@ module.exports.isEnabled = function isEnabled() {
 
     var req = stubMethods(new EventEmitter());
 
+    // HTTP headers can be set two ways: via options.headers or via calls to
+    // req.setHeaders(). replayer mocks the request object as an EventEmitter,
+    // and stubs all its methods with empty functions. We need to lightly
+    // implement setHeader() and related functions so they actually store and
+    // manipulate any passed headers.
+    //
+    // Then we can merge them together with options.headers here.
+    //
+    // Note that this merging is especially critical for HTTPS requests
+    // because the https lib is just a thin wrapper around the http lib --
+    // all HTTPS requests that use setHeaders() will traverse this codepath
+    // twice, with the headers arriving the second time via options.headers
+    // instead of setHeaders().
+    //
+    options.headers = Object.assign({}, options.headers);
+
+    req.setHeader = function (name, value) {
+      options.headers[name] = value;
+    };
+
+    req.getHeader = function (name) {
+      return options.headers[name];
+    };
+
+    req.getHeaderNames = function () {
+      return Object.keys(options.headers);
+    };
+
+    req.getHeaders = function () {
+      return Object.assign({}, options.headers);
+    };
+
+    req.hasHeader = function (name) {
+      return options.headers[name] !== undefined;
+    };
+
+    req.removeHeader = function (name) {
+      delete options.headers[name];
+    };
+
     req.write = function (chunk) {
       reqBody.push(chunk);
     };
@@ -140,15 +174,22 @@ module.exports.isEnabled = function isEnabled() {
         reqBody.push(lastChunk);
       }
 
-      reqBody = reqBody.map(function (chunk) {
-        if (!Buffer.isBuffer(chunk)) {
-          return new Buffer(chunk);
-        } else {
-          return chunk;
-        }
-      });
+      // For some yet-to-be determined reason, the .end handler gets run a
+      // second time when doing a POST. This means the reqBody has already
+      // been concatenated to a Buffer (see below), so we don't want to
+      // re-.map() the existing reqBody Buffer.
+      if (!(Buffer.isBuffer(reqBody))) {
+        reqBody = reqBody.map(function (chunk) {
+          if (!Buffer.isBuffer(chunk)) {
+            return new Buffer(chunk);
+          } else {
+            return chunk;
+          }
+        });
 
-      reqBody = Buffer.concat(reqBody);
+        reqBody = Buffer.concat(reqBody);
+      }
+
       var filename = replayerUtil.constructFilename(options.method, reqUrl,
         reqBody.toString(), options.headers);
 

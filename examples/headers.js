@@ -67,13 +67,22 @@ var httpServer = http.createServer(function(req, res) {
     .value()
     .sort();
 
-  var body = JSON.stringify({
+  var msg = {
     headers: headers,
     cookies: cookies
-  });
+  };
+
+  // handle POSTs
+  if (req.method === 'POST') {
+    msg.body = '';
+    req.on('data', function (chunk) {
+      msg.body += chunk.toString();
+    });
+  }
 
   // simulate server latency
   setTimeout(function() {
+    var body = JSON.stringify(msg);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(body);
   }, 500);
@@ -109,6 +118,58 @@ function makeHttpRequest(reqHeaders, expectedRes, cacheHitExpected, next) {
   });
 }
 
+function makeHttpPostRequest(reqHeaders, reqBody, expectedRes, cacheHitExpected, next) {
+  reqHeaders.cookie = _.reduce(reqHeaders.cookie, function (memo, val, name) {
+    memo.push(name + '=' + val);
+    return memo;
+  }, []).join('; ');
+
+  var start = Date.now();
+
+  var req = request({
+    url: 'http://localhost:1337',
+    method: 'POST',
+    headers: {}
+  });
+
+  for (var h in reqHeaders) {
+    req.setHeader(h, reqHeaders[h]);
+  }
+
+  // error handler is needed to suppress a Timeout error.
+  // FIXME: figure out what's going on here.
+  req.on('error', function () {
+    // console.log(err);
+  });
+
+  req.once('response', function (res) {
+    var body = [];
+
+    res.on('data', function(chunk) {
+      body.push(chunk.toString());
+    });
+
+    res.on('end', function() {
+      var time = Date.now() - start;
+
+      body = body.join();
+      console.log('  status:', res.statusCode);
+      console.log('  body  :', body);
+      console.log('  time  :', time);
+
+      common.verify(function () {
+        JSON.parse(body).should.eql(expectedRes);
+        common.shouldUseCache(cacheHitExpected, time);
+      });
+
+      next();
+    });
+  });
+
+  req.write(reqBody);
+  req.end();
+}
+
 function makeTwoHttpRequests(title, req1, req2, shouldBeCached, next) {
   step(
     function() { console.log(title); this(); },
@@ -120,6 +181,20 @@ function makeTwoHttpRequests(title, req1, req2, shouldBeCached, next) {
       makeHttpRequest(req2.headers, req2.res, shouldBeCached, this);
     },
     function() { console.log(); next(); }
+  );
+}
+
+function makeTwoHttpPostRequests(title, req1, req2, reqBody, shouldBeCached, next) {
+  step(
+    function () { console.log(title); this(); },
+    function () {
+      // assume that the first request will always result in a cache miss
+      makeHttpPostRequest(req1.headers, reqBody, req1.res, false, this);
+    },
+    function () {
+      makeHttpPostRequest(req2.headers, reqBody, req2.res, shouldBeCached, this);
+    },
+    function () { console.log(); next(); }
   );
 }
 
@@ -266,6 +341,38 @@ function sameWhitelisted(next) {
     req1, req2, true, next);
 }
 
+function sameHeadersSameCookiesPost(next) {
+  var reqHeaders = {
+    '5-H1': 'value1',
+    '5-H2': 'value2',
+    cookie: {
+      '5-C1': 'value3',
+      '5-C2': 'value4'
+    }
+  };
+
+  var reqBody = 'foo bar baz quux';
+
+  var expectedRes = {
+    // note addition of content-length header here for POST
+    headers: ['5-h1', '5-h2', 'connection', 'content-length', 'host'],
+    cookies: ['5-c1', '5-c2'],
+    body: reqBody
+  };
+
+  var req1 = {
+    headers: _.cloneDeep(reqHeaders),
+    res: expectedRes
+  };
+
+  var req2 = {
+    headers: _.cloneDeep(reqHeaders),
+    res: expectedRes
+  };
+
+  makeTwoHttpPostRequests('SAME HEADERS + SAME COOKIES VIA POST', req1, req2, reqBody, true, next);
+}
+
 // -- RUN EVERYTHING -----------------------------------------------------------
 
 step(
@@ -274,6 +381,7 @@ step(
   function() { diffHeadersSameCookies(this); },
   function() { diffHeadersDiffCookies(this); },
   function() { sameWhitelisted(this); },
+  function() { sameHeadersSameCookiesPost(this); },
   //function() {
   //  replayer.configure({
   //    headerWhitelist: ['H1', 'h2'], // capitalization doesn't matter

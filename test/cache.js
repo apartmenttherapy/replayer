@@ -100,6 +100,28 @@ describe('cache.js', function() {
         };
         getRequestWithStringOptions.should.not.throw();
       });
+
+      it('retains any additional headers that are set', function () {
+        cache.enable();
+
+        var http = require('http');
+        var req = http.request({
+          host: 'example.com',
+          path: '/',
+          method: 'GET',
+          headers: {
+            'x-foo': 'bar'
+          }
+        });
+
+        req.setHeader('x-baz', 'quux');
+
+        var allHeaders = req.getHeaders();
+        allHeaders.should.have.property('x-foo');
+        allHeaders.should.have.property('x-baz');
+
+        req.getHeaderNames().should.have.length(2);
+      });
     });
 
     describe('#https.request', function () {
@@ -110,6 +132,28 @@ describe('cache.js', function() {
           get('https://example.com');
         };
         getRequestWithStringOptions.should.not.throw();
+      });
+
+      it('retains any additional headers that are set', function () {
+        cache.enable();
+
+        var https = require('https');
+        var req = https.request({
+          host: 'example.com',
+          path: '/',
+          method: 'GET',
+          headers: {
+            'x-foo': 'bar'
+          }
+        });
+
+        req.setHeader('x-baz', 'quux');
+
+        var allHeaders = req.getHeaders();
+        allHeaders.should.have.property('x-foo');
+        allHeaders.should.have.property('x-baz');
+
+        req.getHeaderNames().should.have.length(2);
       });
     });
   });

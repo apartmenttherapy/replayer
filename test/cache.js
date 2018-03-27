@@ -94,9 +94,10 @@ describe('cache.js', function() {
     describe('#http.request', function () {
       it('does not blow up when options is a string', function () {
         cache.enable();
-        var get = require('http').get;
+        var request = require('http').request;
         var getRequestWithStringOptions = function () {
-          get('http://example.com');
+          // set up the request but don't send it, thus avoid Timeout errors.
+          request('http://example.com');
         };
         getRequestWithStringOptions.should.not.throw();
       });
@@ -127,9 +128,10 @@ describe('cache.js', function() {
     describe('#https.request', function () {
       it('does not blow up when options is a string', function () {
         cache.enable();
-        var get = require('https').get;
+        var request = require('https').request;
         var getRequestWithStringOptions = function () {
-          get('https://example.com');
+          // set up the request but don't send it, thus avoid Timeout errors.
+          request('https://example.com');
         };
         getRequestWithStringOptions.should.not.throw();
       });
